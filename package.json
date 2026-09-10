@@ -1,6 +1,6 @@
 {
   "name": "@dsh/dsh-memory",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Persistent memory system plugin for DeepSeek Harness: atomic facts, recall/remember/consolidate engines, soul.md & user.md, and a browser settings section.",
   "type": "module",
   "main": "lib/index.js",

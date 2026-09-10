@@ -1,17 +1,15 @@
 /**
  * 「记忆」设置分区容器（Browser 半组件）。
  *
- * 组件绝不收到 ctx；props 由推导类型组合：
- *  - PropsRuntime<'settings.section'>：owner 提供的值（如 close）
- *  - InjectFace<MemorySectionInjected>：apply 中 inject factory 返回的 hooks + callbacks
- *  - PropsLocale<'memory'>：t() 本地化
- *  - PropsRenderSlots：若声明了 children slot 才提供 renderSlot
+ * 这里先落地「抽取路由」小节：复用主会话默认路由 / 独立配置 provider+model。
+ * 通过注入的 `settings`（MemorySettingsFace，经 ctx.settingsScope）读写 `dsh-memory`
+ * 命名空间，用 useSyncExternalStore 订阅其快照以实现响应式。
  *
- * 内部是「概览/人格/用户画像/记忆管理/提示词注入/备份恢复/高级设置」子导航 + 内容区
- * （交互细节与边界沿用《UI 设计说明》§3/§7），此处为可编译骨架。
+ * 组件绝不收到 ctx；props 由推导类型组合（runtime + injected + locale）。
  */
+import type { ReactNode } from 'react';
 import type { PropsLocale, PropsRuntime, InjectFace } from '@deepseek-ai/dsh-client-ui-slots';
 import type { MemorySectionInjected } from './index.js';
 export type MemoryProps = PropsRuntime<'settings.section'> & InjectFace<MemorySectionInjected> & PropsLocale<'memory'>;
-export declare function MemorySettingsSection({ close }: MemoryProps): import("react").JSX.Element;
+export declare function MemorySettingsSection({ close, settings }: MemoryProps): ReactNode;
 //# sourceMappingURL=MemorySettingsSection.d.ts.map

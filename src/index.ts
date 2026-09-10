@@ -22,6 +22,7 @@ import { createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-settings' // Context.settings 与 ctx.inject(['settings']) 的类型增强
+import type {} from '@deepseek-ai/dsh-agent-default-model' // Context.agentDefaultModel 默认路由
 import { z } from 'zod'
 
 import { MemoryService } from './service.js'
@@ -33,6 +34,7 @@ import {
   MemorySettingsSchema,
   DEFAULT_EXTRACTION_PROVIDER,
   DEFAULT_EXTRACTION_MODEL,
+  type MemorySettings,
 } from './settings.js'
 import { rememberTool, recallTool, forgetTool, readUserProfileTool } from './adapters/tools.js'
 import { lastUserText, scopeOf } from './adapters/util.js'
@@ -105,6 +107,30 @@ function normalizeSps(sps: { type: string; id: string; name?: string | undefined
   }
 }
 
+/**
+ * 按路由模式解析抽取用的 provider/model。
+ * - `reuse`：复用主会话配置的默认路由（`ctx.agentDefaultModel.currentSelection()`）；
+ *   该服务未挂载或返回空时回退到独立配置。
+ * - `independent`：用 `dsh-memory` 设置里的 provider/model（空串回退默认占位）。
+ */
+function resolveExtractionRoute(ctx: Context, settings: MemorySettings): { provider: string; model: string } {
+  if (settings.routeMode === 'reuse') {
+    const defaultModel = (ctx as unknown as {
+      agentDefaultModel?: { currentSelection(): { provider: string; model: string } }
+    }).agentDefaultModel
+    if (defaultModel !== undefined) {
+      const sel = defaultModel.currentSelection()
+      if (sel.provider.length > 0 && sel.model.length > 0) {
+        return { provider: sel.provider, model: sel.model }
+      }
+    }
+  }
+  return {
+    provider: settings.provider.length > 0 ? settings.provider : DEFAULT_EXTRACTION_PROVIDER,
+    model: settings.model.length > 0 ? settings.model : DEFAULT_EXTRACTION_MODEL,
+  }
+}
+
 class LlmExtractor implements Extractor {
   private readonly logger: { warn(msg: unknown, ...rest: unknown[]): void }
 
@@ -120,8 +146,7 @@ class LlmExtractor implements Extractor {
   async extract(content: string, scope: string): Promise<AtomicFactInput[]> {
     if (!content || content.trim().length === 0) return []
     const settings = readMemorySettings(this.ctx)
-    const provider = settings.provider.length > 0 ? settings.provider : DEFAULT_EXTRACTION_PROVIDER
-    const model = settings.model.length > 0 ? settings.model : DEFAULT_EXTRACTION_MODEL
+    const { provider, model } = resolveExtractionRoute(this.ctx, settings)
     const source: FactSource = {
       type: 'llm_inference',
       uri: `llm:${model}`,
