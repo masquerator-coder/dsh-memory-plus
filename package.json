@@ -52,11 +52,13 @@
     "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.8 <0.2.0",
     "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.8 <0.2.0",
     "@deepseek-ai/dsh-api-remotes": ">=0.1.0-rc.8 <0.2.0",
-    "zod": "^3.23.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-settings": ">=0.1.0-rc.8 <0.2.0",
     "@deepseek-ai/dsh-storage-domain": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "typescript": "^5.5.0",
-    "zod": "^3.23.0"
+    "zod": "^4.4.3"
   }
 }

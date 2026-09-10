@@ -21,11 +21,19 @@ import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-settings' // Context.settings 与 ctx.inject(['settings']) 的类型增强
 import { z } from 'zod'
 
 import { MemoryService } from './service.js'
 import { DshStore } from './storage/kv.js'
 import { DshVectorIndex } from './storage/vector.js'
+import {
+  readMemorySettings,
+  MEMORY_SETTINGS_NAMESPACE,
+  MemorySettingsSchema,
+  DEFAULT_EXTRACTION_PROVIDER,
+  DEFAULT_EXTRACTION_MODEL,
+} from './settings.js'
 import { rememberTool, recallTool, forgetTool, readUserProfileTool } from './adapters/tools.js'
 import { lastUserText, scopeOf } from './adapters/util.js'
 import type { Extractor } from './engines/remember.js'
@@ -53,10 +61,8 @@ function assemble(ctx: Context): MemoryService {
   return new MemoryService({ store, vector, extractor })
 }
 
-// —— LLM 抽取提示词与路由默认值 ——
-// 未配置 LLM 路由时回退到占位 provider/model：真实部署应从 settings 或请求路由解析。
-const DEFAULT_EXTRACTION_PROVIDER = 'deepseek'
-const DEFAULT_EXTRACTION_MODEL = 'deepseek-v4-flash'
+// —— LLM 抽取提示词 ——
+// 抽取路由的默认 provider/model 来自 ./settings.js（可经 dsh-memory 设置覆盖）。
 
 const EXTRACTION_SYSTEM_PROMPT = [
   'You decompose natural-language statements into atomic memory facts.',
@@ -100,29 +106,26 @@ function normalizeSps(sps: { type: string; id: string; name?: string | undefined
 }
 
 class LlmExtractor implements Extractor {
-  private readonly provider: string
-  private readonly model: string
   private readonly logger: { warn(msg: unknown, ...rest: unknown[]): void }
 
-  constructor(
-    private ctx: Context,
-    options?: { provider?: string; model?: string },
-  ) {
-    this.provider = options?.provider ?? DEFAULT_EXTRACTION_PROVIDER
-    this.model = options?.model ?? DEFAULT_EXTRACTION_MODEL
+  constructor(private ctx: Context) {
     // 独立 logger 便于在抽取上下文中单点记录（不复用宿主 apply 的 logger 实例）。
     this.logger = ctx.logger('dsh-memory.extractor')
   }
 
   /**
    * 把 `content` 拆为候选原子事实。scope 由调用方（service/queue）传入并写入每条事实。
+   * 每次调用读取 `dsh-memory` 设置中的真实 provider/model（未配置则回退默认）。
    */
   async extract(content: string, scope: string): Promise<AtomicFactInput[]> {
     if (!content || content.trim().length === 0) return []
+    const settings = readMemorySettings(this.ctx)
+    const provider = settings.provider.length > 0 ? settings.provider : DEFAULT_EXTRACTION_PROVIDER
+    const model = settings.model.length > 0 ? settings.model : DEFAULT_EXTRACTION_MODEL
     const source: FactSource = {
       type: 'llm_inference',
-      uri: `llm:${this.model}`,
-      extracted_by: this.model,
+      uri: `llm:${model}`,
+      extracted_by: model,
       credibility: 0.6,
     }
     try {
@@ -133,14 +136,14 @@ class LlmExtractor implements Extractor {
         content,
       ].join('\n')
       const options: GenerateOptions = {
-        provider: this.provider,
-        model: this.model,
+        provider,
+        model,
         messages: [createUserMessage({
           content: [{ type: 'text', text: userPrompt }],
           source: { kind: 'plugin', plugin: 'dsh-memory' },
         })],
         system: EXTRACTION_SYSTEM_PROMPT,
-        maxTokens: 1024,
+        maxTokens: settings.extractionMaxTokens,
       }
       const assembler = new BlockAssembler()
       for await (const chunk of this.ctx.llm.stream(options)) assembler.push(chunk)
@@ -196,6 +199,11 @@ class LlmExtractor implements Extractor {
 
 export function apply(ctx: Context): void {
   const logger = ctx.logger('dsh-memory')
+
+  // 0) 注册抽取路由等设置（settings 服务可选；存在时才注册命名空间）。
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.register(MEMORY_SETTINGS_NAMESPACE, MemorySettingsSchema)
+  })
 
   ctx.effect(() => {
     const memory = assemble(ctx)

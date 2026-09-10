@@ -24,17 +24,17 @@ export declare const factRecord: z.ZodObject<{
     qualifiers: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     content: z.ZodString;
     type: z.ZodEnum<{
-        semantic: "semantic";
         episodic: "episodic";
         procedural: "procedural";
+        semantic: "semantic";
     }>;
     scope: z.ZodString;
     source: z.ZodObject<{
         type: z.ZodEnum<{
+            llm_inference: "llm_inference";
             conversation: "conversation";
             user_edit: "user_edit";
             document: "document";
-            llm_inference: "llm_inference";
         }>;
         uri: z.ZodString;
         extracted_by: z.ZodString;
@@ -98,10 +98,10 @@ export declare const memoryDomainSpec: {
                 name?: string | undefined;
             };
             content: string;
-            type: "semantic" | "episodic" | "procedural";
+            type: "episodic" | "procedural" | "semantic";
             scope: string;
             source: {
-                type: "conversation" | "user_edit" | "document" | "llm_inference";
+                type: "llm_inference" | "conversation" | "user_edit" | "document";
                 uri: string;
                 extracted_by: string;
                 credibility: number;
