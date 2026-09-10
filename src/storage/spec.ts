@@ -58,7 +58,7 @@ export type FactRecord = z.infer<typeof factRecord>
 
 /** 记忆系统持久化领域：`facts` 表按 id 存原子事实。 */
 export const memoryDomainSpec = defineDomain({
-  name: 'dsh-memory',
+  name: 'dsh_memory',
   version: 1,
   tables: {
     facts: domainTable<string, FactRecord>(factRecord),
