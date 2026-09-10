@@ -1,0 +1,66 @@
+{
+  "name": "@dsh/dsh-memory",
+  "version": "0.1.0",
+  "description": "Persistent memory system plugin for DeepSeek Harness: atomic facts, recall/remember/consolidate engines, soul.md & user.md, and a browser settings section.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "dsh-client-ui-slots",
+        "dsh-client-ui-settings",
+        "dsh-client-locale",
+        "dsh-api-remotes"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:model": "tsc --noEmit -p tsconfig.model.json",
+    "example": "node example/run.mjs"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-storage": "workspace:^",
+    "@deepseek-ai/dsh-storage-domain": "workspace:^",
+    "@deepseek-ai/dsh-session-query": "workspace:^",
+    "@deepseek-ai/dsh-jobs": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-storage-domain": "workspace:^",
+    "@deepseek-ai/dsh-session-query": "workspace:^",
+    "@deepseek-ai/dsh-jobs": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "typescript": "^5.5.0"
+  }
+}

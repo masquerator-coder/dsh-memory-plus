@@ -1,0 +1,8 @@
+# build artifacts
+lib/
+lib-core/
+node_modules/
+
+# editor/os
+.DS_Store
+Thumbs.db
