@@ -1,66 +1,86 @@
 /**
- * DSH 存储封装：把 ctx.storageDomain 的 KvTable 适配成 MemoryStore 窄接口。
+ * DSH 存储封装：用 ctx.storageDomain 的 KvTable 实现 MemoryStore 窄接口。
  *
- * 需在 DSH workspace 内构建（依赖 @deepseek-ai/dsh-storage-domain）。
- * 用 defineDomain(spec) 声明领域表（json/sqlite 后端），KvTable 提供 get/put/delete/list。
- *
- * 说明：这是骨架，给出字段与调用形态；真实实现需按 storage-domain 的领域表 API 精确对接。
+ * 打开 `memoryDomainSpec`，`facts` 表按 id 存 AtomicFact；所有写都走领域写链
+ * （backend 先持久化再改内存再发事件），读同步来自内存。get/list 包装成异步接口
+ * 以贴合 MemoryStore。
+ * @module @dsh/dsh-memory/storage/kv
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { AtomicFact, AtomicFactInput, FactStatus } from '../model/fact.js'
-import type { FactFilter, MemoryStore } from './store.js'
+import type { MemoryStore, FactFilter } from './store.js'
+import type { AtomicFact } from '../model/fact.js'
+import { memoryDomainSpec, toFactRecord, fromFactRecord } from './spec.js'
+import type { FactRecord } from './spec.js'
+import type { Domain, KvTable } from '@deepseek-ai/dsh-storage-domain'
+
+/** 关键类型：承载 storage-domain 的领域与表句柄。 */
+type DomainOf = Domain<typeof memoryDomainSpec>
+type FactsTable = KvTable<string, FactRecord>
 
 export class DshStore implements MemoryStore {
-  constructor(_ctx: Context) {
-    // 真实实现：
-    //   const domain = this.ctx.storageDomain.open(defineDomain({
-    //     name: 'dsh-memory',
-    //     table: (t) => ({
-    //       facts: t.object<AtomicFact>().index('semantic_key').index('scope').index('status'),
-    //       edges:  t.object<FactEdge>().index('from').index('to'),
-    //     }),
-    //   }))
-    //   this.facts = domain.table('facts')
-  }
+  private domain: DomainOf | undefined
+  private facts: FactsTable | undefined
 
-  private facts: { get: (k: string) => Promise<AtomicFact | undefined>; } = {
-    // placeholder — see comments above; wired in the real constructor
-    get: async () => undefined,
+  constructor(private ctx: Context) {}
+
+  /** 惰性打开领域（首次经 ctx.storageDomain.open），并由 ctx.effect 托管关闭。 */
+  private async open(): Promise<FactsTable> {
+    if (this.facts) return this.facts
+    const domain = await this.ctx.storageDomain.open(memoryDomainSpec)
+    this.ctx.effect(() => () => { void domain.close() }, 'dsh-memory.storage.domainClose')
+    this.domain = domain
+    this.facts = domain.table('facts')
+    return this.facts
   }
 
   async put(fact: AtomicFact): Promise<AtomicFact> {
-    // this.facts.put(fact.id, fact)
+    const table = await this.open()
+    await table.put(fact.id, toFactRecord(fact))
     return fact
   }
 
   async get(id: string): Promise<AtomicFact | undefined> {
-    return this.facts.get(id)
+    const table = await this.open()
+    const record = table.get(id)
+    return record ? fromFactRecord(record) : undefined
   }
 
-  async list(_filter: FactFilter = {}): Promise<AtomicFact[]> {
-    // this.facts.entries 过滤
-    return []
+  async list(filter: FactFilter = {}): Promise<AtomicFact[]> {
+    const table = await this.open()
+    const items: AtomicFact[] = []
+    for (const [, record] of table.entries()) {
+      const fact = fromFactRecord(record)
+      if (filter.type && fact.type !== filter.type) continue
+      if (filter.scope && fact.scope !== filter.scope) continue
+      if (filter.status && fact.status !== filter.status) continue
+      if (filter.semanticKey && fact.semantic_key !== filter.semanticKey) continue
+      if (filter.search && !fact.content.toLowerCase().includes(filter.search.toLowerCase())) continue
+      items.push(fact)
+    }
+    return items
   }
 
-  async delete(_id: string): Promise<boolean> {
-    // return this.facts.delete(id)
-    return true
+  async delete(id: string): Promise<boolean> {
+    const table = await this.open()
+    return table.delete(id)
   }
 
-  async findActiveBySemanticKey(_semanticKey: string, _scope: string): Promise<AtomicFact | undefined> {
-    // 按 semantic_key+scope 索引查询
-    return undefined
+  async findActiveBySemanticKey(semanticKey: string, scope: string): Promise<AtomicFact | undefined> {
+    const items = await this.list({ semanticKey, scope, status: 'active' })
+    return items[0]
   }
 
-  async listVersions(_semanticKey: string, _scope: string): Promise<AtomicFact[]> {
-    return []
+  async listVersions(semanticKey: string, scope: string): Promise<AtomicFact[]> {
+    const items = await this.list({ semanticKey, scope })
+    return items.sort((a, b) => a.version - b.version)
   }
 
   async close(): Promise<void> {
-    // domain.close()
+    if (this.domain) {
+      await this.domain.close()
+      this.domain = undefined
+      this.facts = undefined
+    }
   }
 }
-
-/** Placeholder 类型（避免未使用告警）。 */
-export type { AtomicFact, AtomicFactInput, FactStatus }

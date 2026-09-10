@@ -18,8 +18,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
+import { z } from 'zod'
 
 import { MemoryService } from './service.js'
 import { DshStore } from './storage/kv.js'
@@ -27,7 +29,8 @@ import { DshVectorIndex } from './storage/vector.js'
 import { rememberTool, recallTool, forgetTool, readUserProfileTool } from './adapters/tools.js'
 import { lastUserText, scopeOf } from './adapters/util.js'
 import type { Extractor } from './engines/remember.js'
-import type { AtomicFactInput } from './model/fact.js'
+import { consolidate } from './engines/consolidate.js'
+import type { AtomicFactInput, FactSource, SpsObject } from './model/fact.js'
 
 export const name = 'dsh-memory'
 export const inject = [
@@ -46,19 +49,148 @@ let activeMemory: MemoryService | undefined
 function assemble(ctx: Context): MemoryService {
   const store = new DshStore(ctx)          // ctx.storageDomain 封装
   const vector = new DshVectorIndex(ctx)   // 自建向量索引（方案 A）
-  const extractor: Extractor = {
-    extract: (content: string, _scope: string) => new LlmExtractor().extract(content),
-  }
+  const extractor: Extractor = new LlmExtractor(ctx)
   return new MemoryService({ store, vector, extractor })
 }
 
-/** 抽取器：经 ctx.llm.stream + BlockAssembler 调用独立 LLM（主会话 LLM 不做抽取）。 */
-class LlmExtractor {
-  async extract(_content: string): Promise<AtomicFactInput[]> {
-    // 实现要点（骨架）：构造抽取提示词 → ctx.llm.stream() → BlockAssembler 折叠 → 解析 JSON 数组
-    // 约束：一个谓词一个事实、属性内聚、自包含、标注 type/confidence/qualifiers。
-    // 此处保留接口与返回契约；真实实现见 backend note（docs/implementation.md）。
-    return []
+// —— LLM 抽取提示词与路由默认值 ——
+// 未配置 LLM 路由时回退到占位 provider/model：真实部署应从 settings 或请求路由解析。
+const DEFAULT_EXTRACTION_PROVIDER = 'deepseek'
+const DEFAULT_EXTRACTION_MODEL = 'deepseek-v4-flash'
+
+const EXTRACTION_SYSTEM_PROMPT = [
+  'You decompose natural-language statements into atomic memory facts.',
+  'Rules:',
+  '- One fact per predicate; keep each fact self-contained and minimal.',
+  '- Every fact is a subject-predicate-object triple with a natural-language `content`.',
+  '- `subject`/`object` are { type, id, name? } references (e.g. type "user", id "user:alice").',
+  '- Classify `type` as semantic (enduring knowledge), episodic (a specific past event), or procedural (how-to steps).',
+  '- Set `confidence` in [0,1] reflecting how certain the source statement is.',
+  '- Optionally attach `qualifiers`, `ttl`, `tags`, or `entities`.',
+  'Return ONLY a JSON array. No prose, no code fences.',
+].join('\n')
+
+/**
+ * 宽松的抽取事实输入校验（与模型 output 契约对应）。经 safeParse 后映射为
+ * `AtomicFactInput`，缺 scope/source（由抽取器按当前调用补全）与非法的条目被丢弃。
+ */
+const extractionFactSchema = z.object({
+  subject: z.object({ type: z.string(), id: z.string(), name: z.string().optional() }),
+  predicate: z.string(),
+  object: z.object({ type: z.string(), id: z.string(), name: z.string().optional() }),
+  content: z.string(),
+  type: z.enum(['semantic', 'episodic', 'procedural']),
+  confidence: z.number().min(0).max(1),
+  qualifiers: z.record(z.string(), z.unknown()).optional(),
+  ttl: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  entities: z.array(z.string()).optional(),
+})
+
+/**
+ * 抽取器：经 `ctx.llm.stream` + BlockAssembler 调用独立 LLM（主会话 LLM 不做抽取）。
+ * 任何失败（无路由、网络、解析错误）都软失败为 `[]`，绝不让装配/写入崩溃。
+ */
+function normalizeSps(sps: { type: string; id: string; name?: string | undefined }): SpsObject {
+  return {
+    type: sps.type,
+    id: sps.id,
+    ...(sps.name !== undefined ? { name: sps.name } : {}),
+  }
+}
+
+class LlmExtractor implements Extractor {
+  private readonly provider: string
+  private readonly model: string
+  private readonly logger: { warn(msg: unknown, ...rest: unknown[]): void }
+
+  constructor(
+    private ctx: Context,
+    options?: { provider?: string; model?: string },
+  ) {
+    this.provider = options?.provider ?? DEFAULT_EXTRACTION_PROVIDER
+    this.model = options?.model ?? DEFAULT_EXTRACTION_MODEL
+    // 独立 logger 便于在抽取上下文中单点记录（不复用宿主 apply 的 logger 实例）。
+    this.logger = ctx.logger('dsh-memory.extractor')
+  }
+
+  /**
+   * 把 `content` 拆为候选原子事实。scope 由调用方（service/queue）传入并写入每条事实。
+   */
+  async extract(content: string, scope: string): Promise<AtomicFactInput[]> {
+    if (!content || content.trim().length === 0) return []
+    const source: FactSource = {
+      type: 'llm_inference',
+      uri: `llm:${this.model}`,
+      extracted_by: this.model,
+      credibility: 0.6,
+    }
+    try {
+      const userPrompt = [
+        'Extract atomic memory facts from the following text. Return a JSON array.',
+        '',
+        'TEXT:',
+        content,
+      ].join('\n')
+      const options: GenerateOptions = {
+        provider: this.provider,
+        model: this.model,
+        messages: [createUserMessage({
+          content: [{ type: 'text', text: userPrompt }],
+          source: { kind: 'plugin', plugin: 'dsh-memory' },
+        })],
+        system: EXTRACTION_SYSTEM_PROMPT,
+        maxTokens: 1024,
+      }
+      const assembler = new BlockAssembler()
+      for await (const chunk of this.ctx.llm.stream(options)) assembler.push(chunk)
+      const text = assembler.blocks()
+        .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n')
+      return this.parseFacts(text, scope, source)
+    } catch (err) {
+      this.logger.warn('memory extraction failed (soft):', err)
+      return []
+    }
+  }
+
+  /** 解析模型输出的 JSON 数组，逐条 lint，非法条目丢弃。 */
+  private parseFacts(raw: string, scope: string, source: FactSource): AtomicFactInput[] {
+    if (!raw || raw.trim().length === 0) return []
+    // 容忍模型把数组包在 ```json ... ``` 围栏里
+    const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(cleaned)
+    } catch (err) {
+      this.logger.warn('memory extraction returned non-JSON, dropping:', err)
+      return []
+    }
+    if (!Array.isArray(parsed)) return []
+    const facts: AtomicFactInput[] = []
+    for (const item of parsed) {
+      const result = extractionFactSchema.safeParse(item)
+      if (!result.success) continue
+      const subject = normalizeSps(result.data.subject)
+      const object = normalizeSps(result.data.object)
+      facts.push({
+        subject,
+        predicate: result.data.predicate,
+        object,
+        content: result.data.content,
+        type: result.data.type,
+        confidence: result.data.confidence,
+        scope,
+        source,
+        privacy: 'private',
+        ...(result.data.qualifiers !== undefined ? { qualifiers: result.data.qualifiers } : {}),
+        ...(result.data.ttl !== undefined ? { ttl: result.data.ttl } : {}),
+        ...(result.data.tags !== undefined ? { tags: result.data.tags } : {}),
+        ...(result.data.entities !== undefined ? { entities: result.data.entities } : {}),
+      })
+    }
+    return facts
   }
 }
 
@@ -118,9 +250,9 @@ export function apply(ctx: Context): void {
   })
 
   // 5) 记忆写入观察—— session/event 只投递，session/flush 异步落地
-  ctx.on('session/event', (_session, event) => {
+  ctx.on('session/event', (session, event) => {
     if (event.type === 'assistant/message' || event.type === 'tool/result') {
-      enqueueExtraction(ctx, event)   // 同步只投递到内部队列
+      enqueueExtraction(ctx, session.id, event)   // 同步只投递到内部队列
     }
   })
   ctx.on('session/flush', (session) => drainExtractionQueue(ctx, session.id))
@@ -143,27 +275,143 @@ export function apply(ctx: Context): void {
   logger.info('dsh-memory host half applied')
 }
 
-// —— 以下为示意辅助（真实实现见对应 adapter/storage 文件）——
-
+/** 把检索到的记忆事实渲染为注入上下文的文本块（供 pre-step 追加到 messages）。 */
 function renderMemoryBlock(facts: Array<{ content: string; confidence: number }>): string {
-  return ['<memory_context>', ...facts.map((f) => `- ${f.content} (conf ${f.confidence.toFixed(2)})`), '</memory_context>'].join('\n')
+  return [
+    '<memory_context>',
+    ...facts.map((f) => `- ${f.content} (conf ${f.confidence.toFixed(2)})`),
+    '</memory_context>',
+  ].join('\n')
 }
 
-function enqueueExtraction(_ctx: Context, _event: { type: string }): void {
-  // 推入按 scope 分片的内部提取队列（见 docs/implementation.md 背压策略）
+// —— 记忆写入队列与后台落地 ——
+// 队列按 scope 分片（FIFO 每片），session/event 只投递文本，session/flush 时出队后台抽取。
+const extractionQueue = new Map<string, string[]>()
+
+/** 由 sessionId 派生业务 scope（与 `scopeOf`/`user:<id>` 的风格保持一致）。 */
+function scopeFromSession(sessionId: string): string {
+  return `user:${sessionId}`
 }
 
-function drainExtractionQueue(_ctx: Context, _sessionId: string): Promise<void> {
-  // 在 session/flush 检查点落地：取出排队事件 → ctx.jobs.start() 后台抽取
-  return Promise.resolve()
+/** 从 assistant/message 或 tool/result 事件中宽容提取用户可见文本（绝不抛出）。 */
+function eventText(event: unknown): string {
+  if (typeof event !== 'object' || event === null) return ''
+  const data = (event as { data?: { message?: { content?: unknown } } }).data
+  const content = data?.message?.content
+  if (!Array.isArray(content)) return ''
+  const textParts: string[] = []
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue
+    const b = block as { type?: unknown; text?: unknown }
+    if (b.type === 'text' && typeof b.text === 'string' && b.text.length > 0) textParts.push(b.text)
+  }
+  return textParts.join('\n')
 }
 
-function runConsolidate(_ctx: Context, _memory: MemoryService): Promise<void> {
-  // 调 consolidate 引擎（去重/衰减/归档）
-  return Promise.resolve()
+function enqueueExtraction(ctx: Context, sessionId: string, event: unknown): void {
+  const text = eventText(event)
+  if (!text) return
+  const scope = scopeFromSession(sessionId)
+  const list = extractionQueue.get(scope)
+  if (list) list.push(text)
+  else extractionQueue.set(scope, [text])
+  void ctx // ctx 保留以对接后续背压/配额策略
 }
 
-function isSensitive(_args: unknown): boolean {
-  // 简单关键识别（电话/身份证/密钥模式命中即敏感）；真实实现可用正则 + 配置
-  return false
+/** 逐条调用 MemoryService.remember（内部经注入的 LlmExtractor 做 LLM 抽取并持久化）。 */
+async function runExtraction(
+  ctx: Context,
+  scope: string,
+  texts: string[],
+  sessionId: string,
+): Promise<void> {
+  const memory = activeMemory
+  if (!memory) return
+  const logger = ctx.logger('dsh-memory')
+  for (const text of texts) {
+    try {
+      await memory.remember({
+        content: text,
+        scope,
+        source: {
+          type: 'conversation',
+          uri: `session:${sessionId}`,
+          extracted_by: 'llm-extractor',
+          credibility: 0.8,
+        },
+      })
+    } catch (err) {
+      logger.warn('memory remember/extract failed:', err)
+    }
+  }
+}
+
+/**
+ * session/flush 检查点：出队该 session 的待抽取文本并在后台落地。
+ * 优先经 ctx.jobs.start 挂后台任务；缺 job controller 时优雅降级为 fire-and-forget。
+ */
+async function drainExtractionQueue(ctx: Context, sessionId: string): Promise<void> {
+  const scope = scopeFromSession(sessionId)
+  const batch = extractionQueue.get(scope)
+  if (!batch || batch.length === 0) return
+  extractionQueue.delete(scope)
+
+  // 结构性防御：jobs 的 Context 增强可能不可见（见 timer 的同类处理），故不 import dsh-jobs 类型。
+  const jobs = (ctx as {
+    jobs?: {
+      start(spec: { kind: string; label: string; run(): { cancel(): void; done: Promise<unknown> } }): unknown
+    }
+  }).jobs
+  if (jobs !== undefined) {
+    try {
+      jobs.start({
+        kind: 'memory',
+        label: `extract ${batch.length} memory entr${batch.length === 1 ? 'y' : 'ies'} (${scope})`,
+        run: () => {
+          const done = runExtraction(ctx, scope, batch, sessionId).catch((err) => {
+            ctx.logger('dsh-memory').warn('background extraction failed:', err)
+          })
+          return { cancel: () => {}, done }
+        },
+      })
+      return
+    } catch (err) {
+      // 无 job controller 或 preflight 拒绝 → 降级为 fire-and-forget
+      ctx.logger('dsh-memory').warn('ctx.jobs.start unavailable, falling back:', err)
+    }
+  }
+  // 优雅降级：直接 fire-and-forget，捕获 rejection 防未处理异常
+  void runExtraction(ctx, scope, batch, sessionId).catch((err) => {
+    ctx.logger('dsh-memory').warn('fallback extraction failed:', err)
+  })
+}
+
+/** 后台整合与遗忘：独立 DshStore 打开同一领域表，调用 consolidate 引擎。 */
+async function runConsolidate(ctx: Context, _memory: MemoryService): Promise<void> {
+  const logger = ctx.logger('dsh-memory')
+  try {
+    const store = new DshStore(ctx)
+    const stats = await consolidate({ store })
+    logger.info('consolidate complete', stats)
+  } catch (err) {
+    logger.warn('consolidate failed:', err)
+  }
+}
+
+/** 简单敏感识别：电话/身份证/API-key/密钥关键词命中即敏感。保守、可配置。 */
+const SENSITIVE_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  { label: 'cn-phone', re: /\b\d{11}\b/ },          // 11 位手机号
+  { label: 'cn-id', re: /\b\d{15}(\d{2}[\dXx])?\b/ }, // 15/18 位身份证
+  { label: 'api-key', re: /(sk-[a-zA-Z0-9]{16,})/ },   // 常见 API key 前缀
+  { label: 'secret-word', re: /(password|passwd|secret|token|api[_-]?key|credential)/i },
+]
+
+function isSensitive(args: unknown): boolean {
+  const text = typeof args === 'string'
+    ? args
+    : (() => {
+      try { return JSON.stringify(args) } catch { return '' }
+    })()
+  if (!text) return false
+  return SENSITIVE_PATTERNS.some(({ re }) => re.test(text))
 }
