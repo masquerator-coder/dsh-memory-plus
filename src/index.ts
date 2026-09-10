@@ -45,7 +45,7 @@ import type { AtomicFactInput, FactSource, SpsObject } from './model/fact.js'
 export const name = 'dsh-memory'
 export const inject = [
   'tools', 'systemPrompt', 'storage', 'storageDomain', 'sessionQuery',
-  'jobs', 'llm', 'settings',
+  'jobs', 'llm', 'settings', 'timer', 'agentDefaultModel',
 ]
 
 /**
