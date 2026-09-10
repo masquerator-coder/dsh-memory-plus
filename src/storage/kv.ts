@@ -8,11 +8,11 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { AtomicFact, AtomicFactInput, FactFilter, FactStatus } from '../model/fact.js'
-import type { MemoryStore } from './store.js'
+import type { AtomicFact, AtomicFactInput, FactStatus } from '../model/fact.js'
+import type { FactFilter, MemoryStore } from './store.js'
 
 export class DshStore implements MemoryStore {
-  constructor(private ctx: Context) {
+  constructor(_ctx: Context) {
     // 真实实现：
     //   const domain = this.ctx.storageDomain.open(defineDomain({
     //     name: 'dsh-memory',
@@ -43,7 +43,7 @@ export class DshStore implements MemoryStore {
     return []
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(_id: string): Promise<boolean> {
     // return this.facts.delete(id)
     return true
   }

@@ -8,10 +8,20 @@ export const zh = {
   'danger.reset.confirm': '输入 "RESET" 确认',
 }
 
+/** Translation keys owned by the `memory` locale namespace. */
+export type MemoryKey = keyof typeof zh
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    /** 「记忆」分区 UI 文案命名空间。 */
+    memory: MemoryKey
+  }
+}
+
 export const en = {
   'nav': 'Memory',
   'overview.totalFacts': 'Total memories',
   'soul.injectMode.core': 'Core persona only',
   'profile.editWarning': 'Editing this file updates the underlying memories',
   'danger.reset.confirm': 'Type "RESET" to confirm',
-}
+} satisfies Record<MemoryKey, string>

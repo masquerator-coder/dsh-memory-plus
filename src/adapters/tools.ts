@@ -34,7 +34,7 @@ export function recallTool(memory: MemoryService) {
       const facts = await memory.recall({
         query: args.query,
         queryEmbedding: [], // 真实实现经 DshVectorIndex 生成 query embedding
-        scope: args.scope,
+        ...(args.scope !== undefined ? { scope: args.scope } : {}),
         topK: args.limit ?? 5,
       })
       return { entries: facts.map((f) => f.content) }

@@ -9,6 +9,12 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+// Type-only Context augmentations: ctx.slots (ui-renderer), ctx.locale
+// (locale), ctx.remote (remotes), and the settings.section slot declaration
+// (ui-settings). Mirrors the ui-cordis client entry.
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client' // settings.section 声明
 import { MemorySettingsSection } from './MemorySettingsSection.tsx'
 import { zh, en } from './locales.ts'
@@ -30,7 +36,10 @@ export function apply(ctx: Context): void {
         stats: ctx.remote.$host ? undefined : undefined,
         facts: undefined,
       },
-      onToggle: (v: boolean) => ctx.remote.memory.toggle(v),
+      // ctx.remote is the fixed ClientRemote assembly (no `memory` namespace
+      // typed yet); the host MemoryRemoteContract (src/remote) maps to it.
+      // Cast locally until the remotes assembly grows a typed `memory` slot.
+      onToggle: (v: boolean) => (ctx.remote as unknown as { memory: { toggle(v: boolean): Promise<unknown> } }).memory.toggle(v),
       onSearch: (q: string) => { void q }, // $stream('memory.facts', {query:q})
     }),
   }, MemorySettingsSection))

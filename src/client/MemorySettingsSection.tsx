@@ -20,7 +20,6 @@ export type MemoryProps =
 
 /** 子导航项（对应《UI 设计说明》七大模块）。 */
 const NAV = ['overview', 'soul', 'profile', 'facts', 'prompt', 'backup', 'advanced'] as const
-type NavKey = (typeof NAV)[number]
 
 export function MemorySettingsSection({ close }: MemoryProps) {
   // 简化骨架：显示总开关 + 占位分区；完整实现见 panels/*（此处仅展示 UI 装配与 props 用法）

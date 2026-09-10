@@ -43,7 +43,7 @@ export class MemoryService {
     const result = await rememberMany(mapped, {
       store: this.deps.store,
       vector: this.deps.vector,
-      deps: this.deps.deps,
+      ...(this.deps.deps !== undefined ? { deps: this.deps.deps } : {}),
     })
     return result.created
   }
@@ -53,8 +53,8 @@ export class MemoryService {
     return recallEngine(query, {
       store: this.deps.store,
       vector: this.deps.vector,
-      graph: this.deps.graph,
-      weights: this.deps.weights,
+      ...(this.deps.graph !== undefined ? { graph: this.deps.graph } : {}),
+      ...(this.deps.weights !== undefined ? { weights: this.deps.weights } : {}),
     })
   }
 

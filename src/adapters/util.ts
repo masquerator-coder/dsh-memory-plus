@@ -10,6 +10,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 export function lastUserText(messages: readonly UserMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]
+    if (!m) continue
     if (m.source.kind !== 'user') continue
     const text = m.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('\n')
     if (text) return text

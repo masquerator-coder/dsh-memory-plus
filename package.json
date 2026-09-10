@@ -4,63 +4,55 @@
   "description": "Persistent memory system plugin for DeepSeek Harness: atomic facts, recall/remember/consolidate engines, soul.md & user.md, and a browser settings section.",
   "type": "module",
   "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
+  "types": "lib/index.d.ts",
   "exports": {
     ".": {
-      "types": "./lib/types/index.d.ts",
+      "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
     "./client": {
-      "types": "./lib/types/client/index.d.ts",
-      "default": "./lib/client.js"
+      "types": "./lib/client/index.d.ts",
+      "default": "./lib/client/index.js"
     },
     "./package.json": "./package.json"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "inject": [
-        "dsh-client-ui-slots",
-        "dsh-client-ui-settings",
-        "dsh-client-locale",
-        "dsh-api-remotes"
+        "slots",
+        "locale",
+        "remote"
       ],
       "platform": "web"
     }
   },
   "files": [
-    "lib/index.js",
-    "lib/client.js",
-    "lib/types/**/*.d.ts"
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
   ],
   "scripts": {
-    "build": "tsc --build",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:model": "tsc --noEmit -p tsconfig.model.json",
     "example": "node example/run.mjs"
   },
   "license": "MIT",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-agent": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-storage": "workspace:^",
-    "@deepseek-ai/dsh-storage-domain": "workspace:^",
-    "@deepseek-ai/dsh-session-query": "workspace:^",
-    "@deepseek-ai/dsh-jobs": "workspace:^",
-    "@deepseek-ai/dsh-llm": "workspace:^"
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-agent": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/dsh-agent-default-model": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/dsh-session": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/dsh-settings": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/schemastery": "^3.18.2",
+    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.8 <0.2.0",
+    "@deepseek-ai/dsh-api-remotes": ">=0.1.0-rc.8 <0.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:^",
-    "@deepseek-ai/dsh-agent": "workspace:^",
-    "@deepseek-ai/dsh-session": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^",
-    "@deepseek-ai/dsh-system-prompt": "workspace:^",
-    "@deepseek-ai/dsh-storage-domain": "workspace:^",
-    "@deepseek-ai/dsh-session-query": "workspace:^",
-    "@deepseek-ai/dsh-jobs": "workspace:^",
-    "@deepseek-ai/dsh-llm": "workspace:^",
     "typescript": "^5.5.0"
   }
 }

@@ -9,7 +9,7 @@
  * 这是纯 TypeScript 类型契约，可独立编译验证。
  */
 
-import type { AtomicFact, AtomicFactInput, FactStatus, FactType } from '../model/fact.js'
+import type { AtomicFact, FactStatus, FactType } from '../model/fact.js'
 
 /** 查询过滤器。 */
 export interface FactFilter {
@@ -125,9 +125,9 @@ export function cosine(a: number[], b: number[]): number {
   let na = 0
   let nb = 0
   for (let i = 0; i < a.length && i < b.length; i++) {
-    dot += a[i] * b[i]
-    na += a[i] * a[i]
-    nb += b[i] * b[i]
+    dot += a[i]! * b[i]!
+    na += a[i]! * a[i]!
+    nb += b[i]! * b[i]!
   }
   if (na === 0 || nb === 0) return 0
   return dot / (Math.sqrt(na) * Math.sqrt(nb))

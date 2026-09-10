@@ -1,0 +1,11 @@
+# @dsh/dsh-memory bundle patch — the configuration layer this package
+# contributes when a profile lists it as a bundle (dsh.bundle.patch).
+#
+# The plugin row references the package by name (not a source path), so Node
+# resolution loads the built entry `lib/index.js` (see package.json `main`).
+# Users override or disable this row from their profile's own cordis.patch.yml.
+
+- insert:
+    - id: dsh-memory
+      name: '@dsh/dsh-memory'
+      config: {}

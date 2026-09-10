@@ -98,7 +98,6 @@ export function buildFact(
     subject: input.subject,
     predicate: input.predicate,
     object: input.object,
-    qualifiers: input.qualifiers,
     content: input.content,
     type: input.type,
     scope: input.scope,
@@ -109,14 +108,15 @@ export function buildFact(
     semantic_key: computeSemanticKey(input),
     status: 'active',
     privacy: input.privacy ?? 'private',
-    ttl: input.ttl,
-    embedding: input.embedding,
-    entities: input.entities,
-    tags: input.tags,
-    episodic: input.episodic,
-    procedural: input.procedural,
     created_at: now,
     updated_at: now,
+    ...(input.qualifiers !== undefined ? { qualifiers: input.qualifiers } : {}),
+    ...(input.ttl !== undefined ? { ttl: input.ttl } : {}),
+    ...(input.embedding !== undefined ? { embedding: input.embedding } : {}),
+    ...(input.entities !== undefined ? { entities: input.entities } : {}),
+    ...(input.tags !== undefined ? { tags: input.tags } : {}),
+    ...(input.episodic !== undefined ? { episodic: input.episodic } : {}),
+    ...(input.procedural !== undefined ? { procedural: input.procedural } : {}),
   }
 }
 
@@ -130,7 +130,6 @@ function resolveConflict(
     case 'latest_wins':
       return true // 最新写入优先（个人助理默认）
     case 'confidence_based': {
-      const newScore = input.confidence
       const oldScore = existing.confidence * (existing.source.credibility || 1)
       const newScoreWeighted = input.confidence * (input.source.credibility || 1)
       return newScoreWeighted > oldScore

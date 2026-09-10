@@ -1,7 +1,10 @@
-# build artifacts
-lib/
+# build artifacts — lib/ is SHIPPED (prebuilt, like dsh-im-gateway); lib-core/ is standalone-model only
 lib-core/
 node_modules/
+
+# tsc build cache (never ship)
+lib/**/*.tsbuildinfo
+*.tsbuildinfo
 
 # editor/os
 .DS_Store

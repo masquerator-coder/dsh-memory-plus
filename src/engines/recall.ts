@@ -73,7 +73,7 @@ export async function recall(
     for (const f of scored) for (const e of f.entities ?? []) seedEntities.add(e)
     const related = await opts.graph.expand([...seedEntities], q.graphHops)
     if (related.length > 0) {
-      const neighbors = await opts.store.list({ scope: q.scope })
+      const neighbors = await opts.store.list(q.scope === undefined ? {} : { scope: q.scope })
       for (const f of neighbors) {
         if (f.status !== 'active') continue
         if (related.some((r) => (f.entities ?? []).includes(r))) {
@@ -111,9 +111,9 @@ function cosineSimilarity(a: number[], b: number[]): number {
   let na = 0
   let nb = 0
   for (let i = 0; i < a.length && i < b.length; i++) {
-    dot += a[i] * b[i]
-    na += a[i] * a[i]
-    nb += b[i] * b[i]
+    dot += a[i]! * b[i]!
+    na += a[i]! * a[i]!
+    nb += b[i]! * b[i]!
   }
   if (na === 0 || nb === 0) return 0
   return dot / (Math.sqrt(na) * Math.sqrt(nb))

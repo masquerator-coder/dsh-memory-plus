@@ -14,7 +14,7 @@ import type { AtomicFact } from '../model/fact.js'
 import type { VectorIndex } from './store.js'
 
 export class DshVectorIndex implements VectorIndex {
-  constructor(private ctx: Context) {
+  constructor(_ctx: Context) {
     // 用 ctx.storageDomain 的一张表存 (factId -> embedding[])，按 scope 分桶减小扫描面
   }
 
@@ -22,12 +22,12 @@ export class DshVectorIndex implements VectorIndex {
     // this.table.put(fact.id, fact.embedding)
   }
 
-  async search(queryEmbedding: number[], topK: number, _scope?: string): Promise<AtomicFact[]> {
+  async search(_queryEmbedding: number[], _topK: number, _scope?: string): Promise<AtomicFact[]> {
     // 方案 A：扫描该 scope 桶内所有向量，进程内余弦相似度排序取 topK
     return []
   }
 
-  async remove(factId: string): Promise<void> {
+  async remove(_factId: string): Promise<void> {
     // this.table.delete(factId)
   }
 
